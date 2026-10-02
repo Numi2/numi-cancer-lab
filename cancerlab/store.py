@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -32,10 +33,15 @@ class ExperimentStore:
                     BEGIN SELECT RAISE(ABORT, 'Evaluations are immutable'); END;
             """)
 
+    @contextmanager
     def connect(self):
         db = sqlite3.connect(self.path, timeout=10)
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+        try:
+            db.execute("PRAGMA foreign_keys=ON")
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def seal(self, artifact: dict) -> str:
         verify_run(artifact)
@@ -63,3 +69,16 @@ class ExperimentStore:
             db.execute("INSERT OR IGNORE INTO evaluations VALUES (?, ?, ?, ?)",
                        (key, run_id, datetime.now(timezone.utc).isoformat(), canonical(evaluation)))
         return key
+
+    def get_evaluation(self, run_id: str) -> dict | None:
+        """Return only a previously recorded reveal, never evaluate implicitly."""
+        run = self.get(run_id)
+        with self.connect() as db:
+            row = db.execute("SELECT artifact FROM evaluations WHERE experiment_id=? ORDER BY created_at DESC LIMIT 1",
+                             (run_id,)).fetchone()
+        if row is None:
+            return None
+        evaluation = json.loads(row[0])
+        if evaluation["artifact_sha256"] != run["artifact_sha256"]:
+            raise ValueError("Stored evaluation does not match the sealed experiment")
+        return evaluation

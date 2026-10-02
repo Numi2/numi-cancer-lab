@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -11,8 +12,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from . import __version__
 from .demo import demo_patients
 from .engine import ExperimentSpec, evaluate, forecast
-from .models import Identifier, Patient, Record, canonical, snapshot
+from .models import Identifier, Organ, Patient, Record, Study, canonical, snapshot
 from .store import ExperimentStore
+from .scanview import LocalScans
 
 
 class CreateExperiment(Record):
@@ -20,8 +22,10 @@ class CreateExperiment(Record):
     spec: ExperimentSpec
 
 
-def create_app(patients: dict[str, Patient] | None = None, db_path: Path | None = None) -> FastAPI:
+def create_app(patients: dict[str, Patient] | None = None, db_path: Path | None = None,
+               scan_root: Path | None = None) -> FastAPI:
     cohort = demo_patients() if patients is None else patients
+    scans = LocalScans(scan_root) if scan_root is not None else None
     store = ExperimentStore(db_path or Path("var/experiments.sqlite3"))
     app = FastAPI(title="Numi Cancer Lab", version=__version__, docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
@@ -59,7 +63,8 @@ def create_app(patients: dict[str, Patient] | None = None, db_path: Path | None 
     @app.get("/api/health")
     def health():
         return {"status": "ok", "version": __version__, "mode": "local research",
-                "synthetic_only": all(p.synthetic for p in cohort.values()), "patients": len(cohort)}
+                "synthetic_only": all(p.synthetic for p in cohort.values()), "patients": len(cohort),
+                "local_imaging_configured": scans is not None}
 
     @app.get("/api/patients")
     def list_patients():
@@ -69,6 +74,54 @@ def create_app(patients: dict[str, Patient] | None = None, db_path: Path | None 
     @app.get("/api/patients/{patient_id}/snapshot")
     def read_snapshot(patient_id: str, cutoff_day: int = Query(..., ge=-100000, le=100000)):
         return snapshot(patient_or_404(patient_id), cutoff_day)
+
+    def visible_study(patient_id: str, study_id: str, cutoff_day: int, run_id: str | None):
+        patient = patient_or_404(patient_id)
+        if run_id is None:
+            studies = snapshot(patient, cutoff_day).studies
+        else:
+            run = run_or_404(run_id)
+            if run["patient_id"] != patient_id:
+                raise HTTPException(404, "Study not available in this view")
+            try:
+                result = store.get_evaluation(run_id)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            studies = () if result is None else (Study.model_validate(result["truth_study"]),)
+        for study in studies:
+            if study.study_id == study_id:
+                return patient, study
+        raise HTTPException(404, "Study not available in this view")
+
+    @app.get("/api/patients/{patient_id}/studies/{study_id}/image")
+    def image_metadata(patient_id: str, study_id: str, organ: Organ,
+                       cutoff_day: int = Query(..., ge=-100000, le=100000), run_id: Identifier | None = None):
+        patient, study = visible_study(patient_id, study_id, cutoff_day, run_id)
+        if scans is None:
+            return {"configured": False, "notice": "Start the local server with --scan-root to inspect imported CT images"}
+        try:
+            return {"configured": True, **scans.metadata(patient, study, organ)}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(422, "Local image unavailable; check the configured dataset root") from exc
+
+    @app.get("/api/patients/{patient_id}/studies/{study_id}/slice")
+    def image_slice(patient_id: str, study_id: str, organ: Organ,
+                    cutoff_day: int = Query(..., ge=-100000, le=100000),
+                    plane: Literal["axial", "coronal", "sagittal"] = "axial",
+                    index: int = Query(..., ge=0), center: float = Query(40, ge=-5000, le=5000, allow_inf_nan=False),
+                    width: float = Query(400, ge=1, le=10000, allow_inf_nan=False),
+                    opacity: float = Query(.4, ge=0, le=1, allow_inf_nan=False), run_id: Identifier | None = None):
+        patient, study = visible_study(patient_id, study_id, cutoff_day, run_id)
+        if scans is None:
+            raise HTTPException(409, "Local imaging is not configured")
+        try:
+            return scans.slice(patient, study, organ, plane, index, center, width, opacity)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(422, "Local image unavailable; check the configured dataset root") from exc
 
     @app.post("/api/experiments", status_code=201)
     def create_experiment(request: CreateExperiment):

@@ -125,6 +125,10 @@ class Snapshot(Record):
 
     @model_validator(mode="after")
     def no_future(self):
+        days = [s.acquired_day for s in self.studies]
+        ids = [s.study_id for s in self.studies]
+        if days != sorted(set(days)) or len(ids) != len(set(ids)):
+            raise ValueError("Snapshot studies must have unique IDs and strictly ordered dates")
         if any(max(s.acquired_day, s.available_day) > self.cutoff_day for s in self.studies):
             raise ValueError("Future study in snapshot")
         if any(max(e.occurred_day, e.available_day) > self.cutoff_day for e in self.events):

@@ -27,6 +27,31 @@ python -m playwright install chromium
 python scripts/browser_smoke.py --offline
 ```
 
+## Local-only verification: no hosted CI
+
+GitHub Actions workflows have been removed. Do not restore them or substitute another paid CI service. The owner has prohibited hosted runner spending. Tests remain in the repository and run on the developer's machine:
+
+```bash
+python scripts/check_local.py --browser
+python scripts/browser_smoke.py --offline --scan-fixture
+```
+
+The check command runs Python tests and synthetic liver/kidney baseline evaluations, optionally adding browser checks. It neither installs dependencies nor starts remote jobs. Missing imaging dependencies are reported as skipped tests, not passes.
+
+## Local CT and measured-mask viewing
+
+After the reviewed import described in [DATA_IMPORT](docs/DATA_IMPORT.md), run:
+
+```bash
+python -m cancerlab serve --patients data/cancerverse-patients --scan-root /path/to/dataset
+```
+
+The source-image panel provides axial, coronal and sagittal slices, intensity-window controls, measured mask overlays, orientation markers and physical pixel aspect ratios. It verifies source hashes, reads planes through NIfTI proxies rather than loading complete CT arrays, and keeps only eight image proxies cached. Compressed files may still require decompression work; no latency benchmark is claimed.
+
+Source grids must be cardinal-axis aligned. Oblique/sheared images require explicit resampling and are refused rather than shown with misleading labels. Different examinations are not registered. Forecast spheres are not drawn as tumor boundaries on CT. Follow-up image access through an experiment requires its recorded reveal; only that target examination is exposed.
+
+The synthetic demo does not include real CT. `--scan-fixture` exercises browser rendering with synthetic voxel arrays, not patient scans or NIfTI disk reads. Real CancerVerse imaging still requires locally authorized data and the optional imaging dependencies.
+
 ## Implemented
 
 - Immutable, versioned patient records with separate acquisition and evidence-availability dates.
@@ -37,7 +62,12 @@ python scripts/browser_smoke.py --offline
 - Append-only SQLite experiments with input, code, and artifact hashes; follow-up evaluation is recorded separately.
 - Explicit missing-target errors, new-lesion-aware organ-total scoring, unscorable cases, and patient-level benchmark denominators.
 - Loopback-only CLI server, host and cross-origin write checks, no external assets or telemetry, and no upload endpoints.
+- Local CancerVerse NIfTI import with a reviewed manifest, physical volume/centroid measurement, source hashes, and explicit correspondence review dates. No CSV column guessing or automatic patient grouping.
+- Local CT/mask viewer with hash checks, cutoff-aware access, plane-bounded rendering and stale-response protection.
+- Exact duplicate scan audit with incomplete-audit reporting; duplicate scans block benchmark execution.
 - CLI, JSON Schema, local experiment export, Python regression tests, and a browser smoke test.
+
+See [local data import](docs/DATA_IMPORT.md) for the dataset layout, manifest format, and import commands. Canonical JSON records and experiment exports are the current Numi integration boundary; native consumers are not yet connected.
 
 ## Research and data boundaries
 

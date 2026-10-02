@@ -21,9 +21,12 @@ from playwright.sync_api import sync_playwright
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--offline', action='store_true')
+    parser.add_argument('--scan-fixture', action='store_true', help='Synthetic voxel renderer fixture; requires --offline')
     parser.add_argument('--url', default='http://127.0.0.1:8765')
     parser.add_argument('--screenshots', type=Path)
     args = parser.parse_args()
+    if args.scan_fixture and not args.offline:
+        parser.error("--scan-fixture is synthetic offline testing only")
     with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
         executable = shutil.which('chromium')
         launch = {'headless': True, 'args': ['--no-sandbox']}
@@ -36,7 +39,30 @@ def main():
         if args.offline:
             from fastapi.testclient import TestClient
             from cancerlab.api import create_app
-            client = TestClient(create_app(db_path=Path(tmp) / 'browser.sqlite3'))
+            if args.scan_fixture:
+                import numpy as np
+                from types import SimpleNamespace
+                from cancerlab import api as api_module
+                from cancerlab.scanview import geometry, render_slice
+                from cancerlab.models import digest
+                xyz = np.indices((48, 56, 40))
+                radius = ((xyz[0]-24)/20)**2 + ((xyz[1]-28)/24)**2 + ((xyz[2]-20)/17)**2
+                values = np.where(radius < 1, 40 + xyz[0], -900).astype(np.int16)
+                mask = (((xyz[0]-28)**2 + (xyz[1]-25)**2 + (xyz[2]-20)**2) < 36).astype(np.uint8)
+                affine = np.diag([1., 1., 2., 1.])
+                ct = SimpleNamespace(shape=values.shape, dataobj=values, affine=affine)
+                annotation = SimpleNamespace(shape=mask.shape, dataobj=mask, affine=affine)
+                class SyntheticScans:
+                    def __init__(self, root):
+                        pass
+                    def metadata(self, patient, study, organ):
+                        return {**geometry(ct), 'scan_sha256': digest('synthetic voxel fixture'),
+                                'overlay_available': True, 'synthetic': True}
+                    def slice(self, patient, study, organ, plane, index, center, width, opacity):
+                        return render_slice(ct, plane, index, mask=annotation, center=center, width=width, opacity=opacity)
+                api_module.LocalScans = SyntheticScans
+            client = TestClient(create_app(db_path=Path(tmp) / 'browser.sqlite3',
+                                          scan_root=Path(tmp) if args.scan_fixture else None))
             def request(data):
                 response = client.request(data['method'], data['path'], headers=data['headers'], content=data['body'])
                 return {'status': response.status_code, 'text': response.text}
@@ -44,6 +70,7 @@ def main():
             web = ROOT / 'cancerlab/web'
             html = (web / 'index.html').read_text()
             html = html.replace('<link rel="stylesheet" href="/static/styles.css">', '<style>' + (web / 'styles.css').read_text() + '</style>')
+            html = html.replace('<link rel="stylesheet" href="/static/scanview.css">', '<style>' + (web / 'scanview.css').read_text() + '</style>')
             html = html.replace('<script type="module" src="/static/app.js"></script>', '')
             page.set_content(html)
             page.add_script_tag(content="""window.fetch=async(path,options={})=>{
@@ -51,11 +78,21 @@ def main():
               return new Response(r.text,{status:r.status,headers:{'Content-Type':'application/json'}});
             };""")
             source = (web / 'scene.js').read_text().replace('export class LesionScene', 'class LesionScene')
-            source += '\n' + (web / 'app.js').read_text().replace("import {LesionScene} from './scene.js';", '')
+            source += '\n' + (web / 'scanview.js').read_text().replace('export class ScanViewer', 'class ScanViewer')
+            source += '\n' + (web / 'app.js').read_text().replace("import {LesionScene} from './scene.js';", '').replace("import {ScanViewer} from './scanview.js';", '')
             page.add_script_tag(content=source)
         else:
             page.goto(args.url, wait_until='networkidle')
-        page.wait_for_function("document.getElementById('metric-studies').textContent==='2'")
+        page.wait_for_function("() => document.getElementById('metric-studies').textContent==='2'")
+        if args.scan_fixture:
+            page.wait_for_function("() => [...document.querySelectorAll('.scan-card img')].filter(i => !i.hidden && i.complete && i.naturalWidth > 0).length === 3")
+            assert 'SYNTHETIC VOXEL FIXTURE' in page.locator('#scan-status').text_content()
+            slider = page.locator('[data-plane=axial] input')
+            slider.evaluate("node => { node.value='1'; node.dispatchEvent(new Event('input', {bubbles:true})); }")
+            page.wait_for_function("() => document.querySelector('[data-plane=axial] p').textContent.startsWith('Slice 2/')")
+            page.locator('input[name=center]').fill('80')
+            page.locator('#scan-window button').click()
+            page.wait_for_function("() => [...document.querySelectorAll('.scan-card img')].every(i => !i.hidden && i.complete && i.naturalWidth > 0)")
         assert page.locator('#seal').is_enabled()
         assert not page.locator('#reveal').is_enabled()
         assert 'HELD-OUT' not in page.locator('#input-evidence').text_content()
@@ -63,9 +100,9 @@ def main():
         renderer = page.locator('#scene').get_attribute('data-renderer')
         assert renderer in {'webgl2', 'canvas-projection'}
         page.click('#seal')
-        page.wait_for_function("document.getElementById('metric-state').textContent==='Sealed'")
+        page.wait_for_function("() => document.getElementById('metric-state').textContent==='Sealed'")
         page.click('#reveal')
-        page.wait_for_function("document.getElementById('metric-state').textContent==='Evaluated'")
+        page.wait_for_function("() => document.getElementById('metric-state').textContent==='Evaluated'")
         assert page.locator('#scores .score').count() == 3
         assert page.locator('#truth-view').is_enabled()
         page.click('#truth-view')
@@ -75,28 +112,28 @@ def main():
             page.screenshot(path=str(args.screenshots / 'desktop.png'), full_page=True)
         page.set_viewport_size({'width': 390, 'height': 844})
         assert page.locator('#patient').is_visible()
-        assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
+        assert not page.evaluate('() => document.documentElement.scrollWidth > innerWidth')
         if args.screenshots:
             page.screenshot(path=str(args.screenshots / 'mobile.png'), full_page=True)
         page.select_option('#patient', 'SYN-002')
-        page.wait_for_function("document.getElementById('organ').value==='kidney'")
+        page.wait_for_function("() => document.getElementById('organ').value==='kidney'")
         assert not page.locator('#reveal').is_enabled()
         page.click('#seal')
-        page.wait_for_function("document.getElementById('metric-state').textContent==='Sealed'")
+        page.wait_for_function("() => document.getElementById('metric-state').textContent==='Sealed'")
         page.click('#reveal')
-        page.wait_for_function("document.getElementById('metric-state').textContent==='Evaluated'")
+        page.wait_for_function("() => document.getElementById('metric-state').textContent==='Evaluated'")
         assert '1 newly observed' in page.locator('#comparison-note').text_content()
         page.fill('#horizon', '80')
         assert not page.locator('#seal').is_enabled()
         page.click('#apply')
-        page.wait_for_function("!document.getElementById('seal').disabled")
+        page.wait_for_function("() => !document.getElementById('seal').disabled")
         page.click('#seal')
-        page.wait_for_function("document.getElementById('metric-state').textContent==='Sealed'")
+        page.wait_for_function("() => document.getElementById('metric-state').textContent==='Sealed'")
         page.click('#reveal')
         page.wait_for_selector('#error', state='visible')
         assert 'predeclared' in page.locator('#error').text_content()
         assert errors == [], errors
-        print(f'PASS: observe/seal/reveal, new lesion, target rejection, desktop/mobile; renderer={renderer}; mode={"offline" if args.offline else "live"}')
+        print(f'PASS: observe/seal/reveal, new lesion, target rejection, desktop/mobile, scan-fixture={args.scan_fixture}; renderer={renderer}; mode={"offline" if args.offline else "live"}')
         browser.close()
 
 

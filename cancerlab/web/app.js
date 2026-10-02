@@ -1,4 +1,6 @@
 import {LesionScene} from './scene.js';
+import {ScanViewer} from './scanview.js';
+const scanViewer = new ScanViewer();
 const $=id=>document.getElementById(id);
 const state={snapshot:null,run:null,evaluation:null,index:0,truth:false,loading:false,dirty:false};
 const names={no_change:'No change',linear:'Linear growth',exponential:'Exponential growth'};
@@ -79,6 +81,10 @@ function render(){
   $('scores').innerHTML=state.evaluation?Object.entries(state.evaluation.scores).map(([m,v])=>`<div class="score"><span>${names[m]} · organ-total error</span><strong>${v.total_absolute_error_ml===null?'Not scorable':fmt(v.total_absolute_error_ml)}</strong>${v.total_absolute_error_ml===null?'':'<em>mL absolute error</em>'}</div>`).join(''):'';
   const abstentions=state.run?Object.entries(state.run.artifact.models[method].abstentions).map(([id,why])=>`${id}: ${why}`).join('; '):'';
   $('comparison-note').textContent=state.evaluation?`${state.evaluation.interpretation}. ${state.evaluation.new_observed_tracks.length} newly observed track(s) included in complete organ-total scoring. Target offset: ${state.evaluation.horizon_offset_days} days.`:abstentions||'A missing or partially annotated examination is not interpreted as zero tumor burden.';
+  scanViewer.select(history && s && !state.dirty ? {
+    patient_id: history.patient_id, study_id: s.study_id, cutoff_day: history.cutoff_day,
+    organ, run_id: state.truth ? state.run?.id : null
+  } : null);
   controls();drawChart();
 }
 function drawChart(){
