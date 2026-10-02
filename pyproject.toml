@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "numi-cancer-lab"
+version = "0.1.0"
+description = "Local longitudinal cancer research with frozen forecasts and traceable evidence"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.128,<1", "uvicorn>=0.34,<1", "pydantic>=2.12,<3", "numpy>=2.2,<3", "scipy>=1.15,<2", "pillow>=11,<13"]
+
+[project.optional-dependencies]
+imaging = ["nibabel>=5.3,<6", "scikit-image>=0.25,<1"]
+dev = ["pytest>=8,<10", "httpx>=0.28,<1", "playwright>=1.50,<2"]
+
+[project.scripts]
+cancerlab = "cancerlab.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cancerlab*"]
+
+[tool.setuptools.package-data]
+cancerlab = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
