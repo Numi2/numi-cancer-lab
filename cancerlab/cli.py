@@ -42,12 +42,32 @@ def benchmark(patients: dict[str, Patient], cutoff: int, horizon: int, organ: st
             skipped.append({"patient_id": patient.patient_id, "reason": str(exc)})
     summary = {}
     for method in ("no_change", "linear", "exponential"):
-        errors = [r["evaluation"]["scores"][method]["total_absolute_error_ml"] for r in rows]
-        errors = [e for e in errors if e is not None]
-        summary[method] = {"scored_patients": len(errors), "patient_mean_absolute_error_ml":
-                           sum(errors) / len(errors) if errors else None}
-    return {"schema_version": "numi.cancer.benchmark.v1", "synthetic_only": all(p.synthetic for p in patients.values()),
+        total_errors = []
+        lesion_errors = []
+        scored_lesions = 0
+        for row in rows:
+            score = row["evaluation"]["scores"][method]
+            if score["total_absolute_error_ml"] is not None:
+                total_errors.append(score["total_absolute_error_ml"])
+            for lesion in score["lesions"].values():
+                error = lesion.get("absolute_error_ml")
+                if error is not None:
+                    lesion_errors.append(error)
+                    scored_lesions += 1
+        summary[method] = {
+            "eligible_patients": len(rows),
+            "scored_patients_total_burden": len(total_errors),
+            "scored_lesions": scored_lesions,
+            "patient_mean_total_absolute_error_ml":
+                sum(total_errors) / len(total_errors) if total_errors else None,
+            "pooled_lesion_mae_ml":
+                sum(lesion_errors) / len(lesion_errors) if lesion_errors else None,
+        }
+    return {"schema_version": "numi.cancer.benchmark.v1",
+            "synthetic_only": all(p.synthetic for p in patients.values()),
             "protocol": {"cutoff_day": cutoff, "horizon_days": horizon, "organ": organ},
+            "cohort": {"input_patients": len(patients), "eligible_patients": len(rows),
+                       "skipped_patients": len(skipped)},
             "summary": summary, "patients": rows, "skipped": skipped, "audit": audit,
             "interpretation": "Retrospective baseline evaluation, not a trained-model or clinical benchmark"}
 
