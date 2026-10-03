@@ -110,3 +110,13 @@ Reviewed manifests bind exact CT/mask hashes and preserve review availability.
 See [registration and correspondence](docs/REGISTRATION.md) for formats,
 limitations, and regional registered-mask comparison. This increment adds library
 and command-line workflows, not an interactive landmark-review screen.
+
+
+## Workspace experience
+
+The browser workspace now separates Overview, CT viewer, Evidence, Match review,
+and Saved experiments. Resume saved work, explicitly confirm a follow-up reveal,
+inspect source evidence, and export reviewed correspondence drafts without
+changing patient records. On mobile, compact settings and a persistent primary
+action keep the workflow accessible. See [the workspace guide](docs/UX.md) for
+controls, review semantics, and verification limits.

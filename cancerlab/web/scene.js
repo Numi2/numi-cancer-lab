@@ -7,7 +7,7 @@ class CanvasLesionScene {
     canvas.addEventListener('pointerdown',e=>{pointer=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId);});
     canvas.addEventListener('pointermove',e=>{if(!pointer)return;this.yaw+=(e.clientX-pointer[0])*.008;this.pitch=Math.max(-1.3,Math.min(1.3,this.pitch+(e.clientY-pointer[1])*.008));pointer=[e.clientX,e.clientY];this.draw();});
     for(const event of ['pointerup','pointercancel'])canvas.addEventListener(event,()=>{pointer=null;});
-    canvas.addEventListener('wheel',e=>{e.preventDefault();this.zoom=Math.max(.4,Math.min(3,this.zoom*Math.exp(-e.deltaY*.001)));this.draw();},{passive:false});
+    canvas.addEventListener('wheel',e=>{if(document.activeElement!==canvas)return;e.preventDefault();this.zoom=Math.max(.4,Math.min(3,this.zoom*Math.exp(-e.deltaY*.001)));this.draw();},{passive:false});
     canvas.addEventListener('keydown',e=>{if(!e.key.startsWith('Arrow'))return;e.preventDefault();if(e.key==='ArrowLeft')this.yaw-=.12;if(e.key==='ArrowRight')this.yaw+=.12;if(e.key==='ArrowUp')this.pitch-=.12;if(e.key==='ArrowDown')this.pitch+=.12;this.draw();});
     this.observer=new ResizeObserver(()=>this.draw());this.observer.observe(canvas);
   }
@@ -75,7 +75,7 @@ export class LesionScene {
     canvas.addEventListener('pointerdown',e=>{pointer=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId);});
     canvas.addEventListener('pointermove',e=>{if(!pointer)return;this.yaw+=(e.clientX-pointer[0])*.008;this.pitch=Math.max(-1.3,Math.min(1.3,this.pitch+(e.clientY-pointer[1])*.008));pointer=[e.clientX,e.clientY];this.draw();});
     canvas.addEventListener('pointerup',()=>{pointer=null;});canvas.addEventListener('pointercancel',()=>{pointer=null;});
-    canvas.addEventListener('wheel',e=>{e.preventDefault();this.zoom=Math.max(.4,Math.min(3,this.zoom*Math.exp(-e.deltaY*.001)));this.draw();},{passive:false});
+    canvas.addEventListener('wheel',e=>{if(document.activeElement!==canvas)return;e.preventDefault();this.zoom=Math.max(.4,Math.min(3,this.zoom*Math.exp(-e.deltaY*.001)));this.draw();},{passive:false});
     canvas.addEventListener('keydown',e=>{if(!e.key.startsWith('Arrow'))return;e.preventDefault();if(e.key==='ArrowLeft')this.yaw-=.12;if(e.key==='ArrowRight')this.yaw+=.12;if(e.key==='ArrowUp')this.pitch-=.12;if(e.key==='ArrowDown')this.pitch+=.12;this.draw();});
     this.resizeObserver=new ResizeObserver(()=>this.draw());this.resizeObserver.observe(canvas);
   }
