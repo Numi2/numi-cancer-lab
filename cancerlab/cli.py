@@ -55,6 +55,10 @@ def benchmark(patients: dict[str, Patient], cutoff: int, horizon: int, organ: st
                     lesion_errors.append(error)
                     scored_lesions += 1
         summary[method] = {
+            # Preserve the published v1 fields for existing consumers.
+            "scored_patients": len(total_errors),
+            "patient_mean_absolute_error_ml":
+                sum(total_errors) / len(total_errors) if total_errors else None,
             "eligible_patients": len(rows),
             "scored_patients_total_burden": len(total_errors),
             "scored_lesions": scored_lesions,
