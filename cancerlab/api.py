@@ -15,6 +15,7 @@ from .engine import ExperimentSpec, evaluate, forecast
 from .models import Identifier, Organ, Patient, Record, Study, canonical, snapshot
 from .store import ExperimentStore
 from .scanview import LocalScans
+from .workspace import install_workspace
 
 
 class CreateExperiment(Record):
@@ -161,5 +162,6 @@ def create_app(patients: dict[str, Patient] | None = None, db_path: Path | None 
     def index():
         return FileResponse(Path(__file__).with_name("web") / "index.html")
 
+    install_workspace(app, cohort, store)
     app.mount("/static", StaticFiles(directory=Path(__file__).with_name("web")), name="static")
     return app
