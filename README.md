@@ -84,3 +84,17 @@ Measured observations, numerical forecasts, and future biological simulations ar
 - NIfTI coordinates and units: https://nipy.org/nibabel/nifti_images.html
 
 No software redistribution license has been selected yet. The repository owner must choose one; this does not change any external dataset license.
+
+
+## Real-cohort evaluation
+
+CancerVerse data stays local. After a reviewed import, run a fixed protocol:
+
+```bash
+python -m cancerlab audit --patients data/cancerverse
+python -m cancerlab benchmark --patients data/cancerverse --cutoff 90 --horizon 90 --organ liver --out var/liver-90d.json
+```
+
+The benchmark reports the input/eligible/skipped patient counts, total-burden coverage, pooled lesion MAE, and per-patient sealed artifacts. A lesion is scored only when its longitudinal correspondence is confirmed. Total burden is scored only when the held-out study is declared completely annotated for that organ. These are retrospective research measurements, not clinical performance claims.
+
+Hosted CI is intentionally absent to avoid runner spend. Verification is local with `python scripts/check_local.py --browser`.
