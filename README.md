@@ -36,7 +36,7 @@ python scripts/check_local.py --browser
 python scripts/browser_smoke.py --offline --scan-fixture
 ```
 
-The check command runs Python tests and synthetic liver/kidney baseline evaluations, optionally adding browser checks. It neither installs dependencies nor starts remote jobs. Missing imaging dependencies are reported as skipped tests, not passes.
+The check command runs Python tests, synthetic liver/kidney baseline evaluations, and the synthetic registration/review workflow, optionally adding browser checks. It neither installs dependencies nor starts remote jobs. Missing imaging dependencies are reported as skipped tests, not passes.
 
 ## Local CT and measured-mask viewing
 
@@ -48,7 +48,7 @@ python -m cancerlab serve --patients data/cancerverse-patients --scan-root /path
 
 The source-image panel provides axial, coronal and sagittal slices, intensity-window controls, measured mask overlays, orientation markers and physical pixel aspect ratios. It verifies source hashes, reads planes through NIfTI proxies rather than loading complete CT arrays, and keeps only eight image proxies cached. Compressed files may still require decompression work; no latency benchmark is claimed.
 
-Source grids must be cardinal-axis aligned. Oblique/sheared images require explicit resampling and are refused rather than shown with misleading labels. Different examinations are not registered. Forecast spheres are not drawn as tumor boundaries on CT. Follow-up image access through an experiment requires its recorded reveal; only that target examination is exposed.
+Source grids must be cardinal-axis aligned. Oblique/sheared images require explicit resampling and are refused rather than shown with misleading labels. The viewer still displays each examination in its source frame; CLI alignment is described below. Forecast spheres are not drawn as tumor boundaries on CT. Follow-up image access through an experiment requires its recorded reveal; only that target examination is exposed.
 
 The synthetic demo does not include real CT. `--scan-fixture` exercises browser rendering with synthetic voxel arrays, not patient scans or NIfTI disk reads. Real CancerVerse imaging still requires locally authorized data and the optional imaging dependencies.
 
@@ -75,7 +75,7 @@ Do not commit patient scans, clinical reports, identifiers, experiment outputs, 
 
 CancerVerse is a separate dataset licensed under CC BY-NC-ND 4.0. No CancerVerse scans, reports, or annotations are redistributed here. Review the publisher's terms, including commercial-use restrictions, before using real records.
 
-Measured observations, numerical forecasts, and future biological simulations are distinct. Software tests are not evidence of medical effectiveness. Patient-level registration, trained detection/forecast models, biological treatment models, and native Numi-suite consumers are not implemented in this milestone.
+Measured observations, numerical forecasts, and future biological simulations are distinct. Software tests are not evidence of medical effectiveness. Deformable registration, interactive landmark review, trained detection/forecast models, biological treatment models, and native Numi-suite consumers are not implemented in this milestone.
 
 ## Primary references
 
@@ -98,3 +98,15 @@ python -m cancerlab benchmark --patients data/cancerverse --cutoff 90 --horizon 
 The benchmark reports the input/eligible/skipped patient counts, total-burden coverage, pooled lesion MAE, and per-patient sealed artifacts. A lesion is scored only when its longitudinal correspondence is confirmed. Total burden is scored only when the held-out study is declared completely annotated for that organ. These are retrospective research measurements, not clinical performance claims.
 
 Hosted CI is intentionally absent to avoid runner spend. Verification is local with `python scripts/check_local.py --browser`.
+
+## Reviewed scan alignment and matching
+
+Run `python scripts/tracking_demo.py --out var/tracking-demo` for a local,
+explicitly synthetic registration -> candidate matching -> reviewed-manifest
+workflow. New CLI commands are `register`, `match`, and `review-tracks`.
+Suggestions never become persistent identities without an explicit review.
+Reviewed manifests bind exact CT/mask hashes and preserve review availability.
+
+See [registration and correspondence](docs/REGISTRATION.md) for formats,
+limitations, and regional registered-mask comparison. This increment adds library
+and command-line workflows, not an interactive landmark-review screen.

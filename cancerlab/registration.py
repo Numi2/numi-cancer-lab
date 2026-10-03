@@ -152,4 +152,71 @@ def verify_registration(patient: Patient, artifact: dict) -> RegistrationRequest
     # Numerical comparison permits normal floating-point differences across machines.
     if not np.allclose(rigid_matrix(artifact.get("matrix")), expected["matrix"], atol=1e-8, rtol=0):
         raise ValueError("Stored transform does not reproduce the reviewed landmarks")
+    for kind in ("fit", "check"):
+        actual, wanted = artifact.get(kind), expected[kind]
+        if not isinstance(actual, dict) or actual.get("count") != wanted["count"]:
+            raise ValueError("Stored landmark diagnostics do not reproduce")
+        errors = np.asarray(actual.get("errors_mm"), dtype=float)
+        if errors.shape != (wanted["count"],) or not np.allclose(errors, wanted["errors_mm"], atol=1e-8, rtol=0):
+            raise ValueError("Stored landmark diagnostics do not reproduce")
+        for metric in ("rmse_mm", "max_error_mm"):
+            value = actual.get(metric)
+            if wanted[metric] is None:
+                valid = value is None
+            else:
+                valid = isinstance(value, (float, int)) and np.isclose(value, wanted[metric], atol=1e-8, rtol=0)
+            if not valid:
+                raise ValueError("Stored landmark diagnostics do not reproduce")
+    if artifact.get("validation") != expected["validation"]:
+        raise ValueError("Stored registration validation status does not reproduce")
     return request
+
+
+def compare_registered_masks(fixed_mask, fixed_affine, moving_mask, moving_affine,
+                             moving_to_fixed, *, max_voxels: int = 8_000_000) -> dict:
+    """Nearest-neighbour overlap on shared support; original volumes stay authoritative.
+
+    The sampling map is inv(moving_affine) @ inv(moving_to_fixed) @ fixed_affine.
+    Pixels outside either observation are unobserved, never an absent lesion.
+    This is a regional binary-mask comparison, not per-lesion correspondence.
+    """
+    from scipy.ndimage import affine_transform
+    from .imaging import checked_affine
+
+    if isinstance(max_voxels, bool) or not isinstance(max_voxels, int) or max_voxels < 1:
+        raise ValueError("Voxel limit must be a positive integer")
+    masks = []
+    for value in (fixed_mask, moving_mask):
+        value = np.asarray(value)
+        if value.ndim != 3 or min(value.shape) < 1 or value.size > max_voxels:
+            raise ValueError("Mask must be nonempty 3D and within the comparison voxel limit")
+        if value.dtype.kind not in 'buif' or not np.isfinite(value).all() or not np.isin(value, [0, 1]).all():
+            raise ValueError("Comparison requires finite binary masks")
+        masks.append(value.astype(np.uint8))
+    f, m = masks
+    fa, ma, transform = checked_affine(fixed_affine), checked_affine(moving_affine), rigid_matrix(moving_to_fixed)
+    pull = np.linalg.inv(ma) @ np.linalg.inv(transform) @ fa
+
+    def resample(values, mapping, shape):
+        # Tiny roundoff near a grid boundary should not discard exact matches.
+        mapping = np.where(np.abs(mapping - np.rint(mapping)) < 1e-10, np.rint(mapping), mapping)
+        return affine_transform(values, mapping[:3, :3], offset=mapping[:3, 3], output_shape=shape,
+                                order=0, mode='constant', cval=0, prefilter=False)
+
+    valid_f = resample(np.ones(m.shape, dtype=np.uint8), pull, f.shape).astype(bool)
+    if not valid_f.any():
+        raise ValueError("Registered fields of view have no shared sampled support")
+    warped = resample(m, pull, f.shape).astype(bool)
+    valid_m = resample(np.ones(f.shape, dtype=np.uint8), np.linalg.inv(pull), m.shape).astype(bool)
+    fv, mv = f.astype(bool) & valid_f, warped & valid_f
+    f_count, m_count = int(f.sum()), int(m.sum())
+    denominator = int(fv.sum()) + int(mv.sum())
+    return {"schema_version": "numi.cancer.registered-mask-comparison.v1",
+            "direction": "moving_to_fixed_ras_mm", "interpolation": "nearest neighbour",
+            "dice_on_shared_fixed_grid": 2 * int((fv & mv).sum()) / denominator if denominator else None,
+            "shared_fixed_grid_fraction": float(valid_f.mean()),
+            "fixed_tumor_observed_fraction": int((f.astype(bool) & valid_f).sum()) / f_count if f_count else None,
+            "moving_tumor_observed_fraction": int((m.astype(bool) & valid_m).sum()) / m_count if m_count else None,
+            "original_fixed_volume_ml": f_count * abs(float(np.linalg.det(fa[:3, :3]))) / 1000,
+            "original_moving_volume_ml": m_count * abs(float(np.linalg.det(ma[:3, :3]))) / 1000,
+            "notice": "Overlap depends on sampling, coverage, annotation, growth and alignment; not an identity or response score."}

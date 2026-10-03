@@ -32,6 +32,7 @@ class TrackReview(Record):
 class MaskSelection(Record):
     organ: Organ
     reviews: tuple[TrackReview, ...] = ()
+    expected_mask_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
     def unique_components(self):
@@ -47,6 +48,7 @@ class ImportStudy(Record):
     coverage: tuple[Organ, ...]
     annotation_scope: Literal["complete", "partial", "unknown"] = "unknown"
     masks: tuple[MaskSelection, ...]
+    expected_scan_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
     def consistent(self):
@@ -117,6 +119,8 @@ def import_records(root: Path, manifest: ImportManifest, *, acknowledge_license:
             ct_path = inside(root, "CancerVerse", s.case_id, "ct.nii.gz")
             ct = load_nifti(ct_path)
             scan_hash = file_sha256(ct_path)
+            if s.expected_scan_sha256 is not None and scan_hash != s.expected_scan_sha256:
+                raise ValueError("CT bytes differ from the reviewed manifest binding")
             if scan_hash in seen_scans:
                 raise ValueError("Exact duplicate CT bytes found; review duplicate/alias records before import")
             seen_scans[scan_hash] = p.patient_id
@@ -125,6 +129,8 @@ def import_records(root: Path, manifest: ImportManifest, *, acknowledge_license:
                 relative = f"CancerVerse/{s.case_id}/segmentations/{MASK_NAMES[selected.organ]}.nii.gz"
                 mask_path = inside(root, relative)
                 mask_hash = file_sha256(mask_path)
+                if selected.expected_mask_sha256 is not None and mask_hash != selected.expected_mask_sha256:
+                    raise ValueError("Mask bytes differ from the reviewed manifest binding")
                 measured = measure_nifti(mask_path, ct)
                 reviews = {r.component: r for r in selected.reviews}
                 if set(reviews) - {m["component"] for m in measured}:

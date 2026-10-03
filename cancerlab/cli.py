@@ -104,9 +104,13 @@ def main(argv: list[str] | None = None) -> None:
     ingest.add_argument("--acknowledge-license", action="store_true")
     commands.add_parser("import-schema", help="Print the reviewed CancerVerse import manifest JSON Schema")
     commands.add_parser("schema", help="Print the patient JSON Schema")
+    from .tracking_cli import COMMANDS, configure, run as run_tracking
+    configure(commands)
     args = parser.parse_args(argv)
     try:
-        if args.command == "serve":
+        if args.command in COMMANDS:
+            run_tracking(args)
+        elif args.command == "serve":
             import uvicorn
             from .api import create_app
             if not 1024 <= args.port <= 65535:

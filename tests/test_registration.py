@@ -112,3 +112,60 @@ def test_requires_ct_hashes_for_real_records():
     with pytest.raises(ValueError, match='CT hashes'):
         register(patient.model_copy(update={'synthetic': False, 'studies': tuple(
             s.model_copy(update={'scan_sha256': None}) for s in patient.studies)}), spec)
+
+
+def test_registered_mask_translation_and_authoritative_volumes():
+    from cancerlab.registration import compare_registered_masks
+    f = np.zeros((16, 16, 16), dtype=np.uint8); f[3:6, 4:7, 5:8] = 1
+    m = np.zeros_like(f); m[6:9, 4:7, 5:8] = 1
+    a = np.diag([2., 3., 4., 1.])
+    transform = np.eye(4); transform[0, 3] = -6
+    result = compare_registered_masks(f, a, m, a, transform)
+    assert result['dice_on_shared_fixed_grid'] == 1
+    assert result['original_fixed_volume_ml'] == pytest.approx(.648)
+    assert result['original_moving_volume_ml'] == pytest.approx(.648)
+    assert result['fixed_tumor_observed_fraction'] == 1
+    assert result['moving_tumor_observed_fraction'] == 1
+    assert result['shared_fixed_grid_fraction'] < 1
+
+
+def test_mask_comparison_reports_cropping_and_empty_unknown():
+    from cancerlab.registration import compare_registered_masks
+    f = np.ones((10, 10, 10), dtype=np.uint8)
+    m = np.ones((5, 10, 10), dtype=np.uint8)
+    result = compare_registered_masks(f, np.eye(4), m, np.eye(4), np.eye(4))
+    assert result['dice_on_shared_fixed_grid'] == 1  # only within shared support
+    assert result['fixed_tumor_observed_fraction'] == .5
+    assert result['moving_tumor_observed_fraction'] == 1
+    result = compare_registered_masks(f*0, np.eye(4), m*0, np.eye(4), np.eye(4))
+    assert result['dice_on_shared_fixed_grid'] is None
+    assert result['fixed_tumor_observed_fraction'] is None
+
+
+def test_mask_comparison_limits_and_no_overlap():
+    from cancerlab.registration import compare_registered_masks
+    mask = np.ones((4, 4, 4), dtype=np.uint8)
+    transform = np.eye(4); transform[0, 3] = 100
+    with pytest.raises(ValueError, match='no shared'):
+        compare_registered_masks(mask, np.eye(4), mask, np.eye(4), transform)
+    with pytest.raises(ValueError, match='limit'):
+        compare_registered_masks(mask, np.eye(4), mask, np.eye(4), np.eye(4), max_voxels=10)
+    with pytest.raises(ValueError, match='binary'):
+        compare_registered_masks(mask*2, np.eye(4), mask, np.eye(4), np.eye(4))
+
+
+def test_mask_comparison_with_rotated_grid():
+    from cancerlab.registration import compare_registered_masks
+    f = np.zeros((8,8,8), dtype=np.uint8); f[1:3,2:5,2:4]=1
+    m = f.transpose(1,0,2)[:, ::-1, :]
+    affine = np.array([[0,-1,0,7], [1,0,0,0], [0,0,1,0], [0,0,0,1.]])
+    assert compare_registered_masks(f, np.eye(4), m, affine, np.eye(4))['dice_on_shared_fixed_grid'] == 1
+
+
+def test_forged_landmark_diagnostics_refused_even_with_new_digest():
+    patient, spec, _ = request()
+    result = register(patient, spec)
+    result['fit']['rmse_mm'] = 20
+    result['artifact_sha256'] = digest({k:v for k,v in result.items() if k != 'artifact_sha256'})
+    with pytest.raises(ValueError, match='diagnostics'):
+        verify_registration(patient, result)

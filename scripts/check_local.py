@@ -17,6 +17,8 @@ def main():
         for organ in ['liver', 'kidney']:
             subprocess.run([sys.executable, '-m', 'cancerlab', 'benchmark', '--organ', organ,
                             '--out', str(Path(tmp) / f'{organ}.json')], cwd=ROOT, check=True)
+        subprocess.run([sys.executable, 'scripts/tracking_demo.py', '--out', str(Path(tmp) / 'tracking')],
+                       cwd=ROOT, check=True)
     if args.browser:
         subprocess.run([sys.executable, 'scripts/browser_smoke.py', '--offline'], cwd=ROOT, check=True)
     print('Local checks completed. No hosted CI jobs were requested.')
