@@ -124,6 +124,8 @@ def evaluate(run: dict, patient: Patient) -> dict:
     assessed = {m.lesion_id: m for m in truth.lesions
                 if m.organ == spec.organ and m.state != "not_assessed"}
     incomplete = any(m.organ == spec.organ and m.state == "not_assessed" for m in truth.lesions)
+    unverified = any(m.organ == spec.organ and m.state != "not_assessed"
+                     and m.correspondence != "confirmed" for m in truth.lesions)
     actual_total = (sum(m.volume_ml for m in assessed.values())
                     if truth.annotation_scope == "complete" and not incomplete else None)
     known_tracks = {m["lesion_id"] for s in run["snapshot"]["studies"] for m in s["lesions"]
@@ -144,7 +146,8 @@ def evaluate(run: dict, patient: Patient) -> dict:
                           "lesion_mae_ml": sum(errors) / len(errors) if errors else None,
                           "predicted_total_ml": predicted_total, "actual_total_ml": actual_total,
                           "total_absolute_error_ml": abs(predicted_total - actual_total)
-                          if predicted_total is not None and actual_total is not None else None}
+                          if predicted_total is not None and actual_total is not None else None,
+                          "track_correspondence_complete": not unverified}
     return {"schema_version": "numi.cancer.evaluation.v1", "artifact_sha256": run["artifact_sha256"],
             "truth_sha256": digest(truth), "truth_study": truth.model_dump(mode="json"),
             "target_day": target, "actual_day": truth.acquired_day,
